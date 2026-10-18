@@ -75,7 +75,7 @@ function eventsForDate(date: Date): CalendarEvent[] {
 function eventCard(event: CalendarEvent): string {
   const time = event.allDay ? "Cả ngày" : `${formatTime(event.start)} – ${formatTime(event.end)}`;
   const location = event.location ? `<span class="event-location">${escapeHtml(event.location)}</span>` : "";
-  return `<article class="event-card" style="--event-color: ${event.color ?? "#6c5ce7"}">
+  return `<article class="event-card" data-event-id="${escapeHtml(event.id)}" style="--event-color: ${event.color ?? "#6c5ce7"}" tabindex="0" role="button" aria-label="Sửa ${escapeHtml(event.title)}">
     <span class="event-bar" aria-hidden="true"></span><div class="event-time">${time}</div>
     <div class="event-copy"><h3>${escapeHtml(event.title)}</h3>${location}</div></article>`;
 }
@@ -153,14 +153,108 @@ async function initializeAutostart(): Promise<void> {
   try { checkbox.checked = await isEnabled(); } catch { checkbox.disabled = true; }
 }
 
+function dateValue(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function dateTimeValue(date: Date): string {
+  return `${dateValue(date)}T${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function toggleAllDayFields(allDay: boolean): void {
+  document.querySelector("#timed-fields")?.classList.toggle("hidden", allDay);
+  document.querySelector("#allday-fields")?.classList.toggle("hidden", !allDay);
+  document.querySelectorAll<HTMLInputElement>("#timed-fields input").forEach((input) => { input.disabled = allDay; });
+  document.querySelectorAll<HTMLInputElement>("#allday-fields input").forEach((input) => { input.disabled = !allDay; });
+}
+
+function openEventEditor(event?: CalendarEvent): void {
+  const form = document.querySelector<HTMLFormElement>("#event-form");
+  const dialog = document.querySelector<HTMLDialogElement>("#event-dialog");
+  if (!form || !dialog) return;
+  form.reset();
+  const start = event ? new Date(event.start) : new Date(state.selectedDate);
+  if (!event) start.setHours(9, 0, 0, 0);
+  const end = event ? new Date(event.end) : new Date(start.getTime() + 60 * 60 * 1000);
+  const allDay = event?.allDay ?? false;
+  (document.querySelector<HTMLInputElement>("#event-id")!).value = event?.id ?? "";
+  (document.querySelector<HTMLInputElement>("#event-title")!).value = event?.title ?? "";
+  (document.querySelector<HTMLInputElement>("#event-location")!).value = event?.location ?? "";
+  (document.querySelector<HTMLInputElement>("#event-all-day")!).checked = allDay;
+  (document.querySelector<HTMLInputElement>("#event-start")!).value = dateTimeValue(start);
+  (document.querySelector<HTMLInputElement>("#event-end")!).value = dateTimeValue(end);
+  (document.querySelector<HTMLInputElement>("#event-start-date")!).value = dateValue(start);
+  const inclusiveEnd = allDay ? addDays(end, -1) : start;
+  (document.querySelector<HTMLInputElement>("#event-end-date")!).value = dateValue(inclusiveEnd);
+  const heading = document.querySelector<HTMLElement>("#event-dialog-title");
+  if (heading) heading.textContent = event ? "Sửa sự kiện" : "Tạo sự kiện";
+  const message = document.querySelector<HTMLElement>("#event-error");
+  if (message) message.textContent = "";
+  toggleAllDayFields(allDay);
+  dialog.showModal();
+  window.setTimeout(() => document.querySelector<HTMLInputElement>("#event-title")?.focus(), 50);
+}
+
+async function saveEventFromForm(form: HTMLFormElement): Promise<void> {
+  const data = new FormData(form);
+  const allDay = data.get("allDay") === "on";
+  const message = document.querySelector<HTMLElement>("#event-error");
+  const saveButton = document.querySelector<HTMLButtonElement>("#save-event");
+  let start: string;
+  let end: string;
+  if (allDay) {
+    const startDate = String(data.get("startDate"));
+    const inclusiveEnd = new Date(`${String(data.get("endDate"))}T00:00:00`);
+    if (inclusiveEnd < new Date(`${startDate}T00:00:00`)) { if (message) message.textContent = "Ngày kết thúc phải từ ngày bắt đầu trở đi."; return; }
+    start = startDate;
+    end = dateValue(addDays(inclusiveEnd, 1));
+  } else {
+    const startDate = new Date(String(data.get("start")));
+    const endDate = new Date(String(data.get("end")));
+    if (endDate <= startDate) { if (message) message.textContent = "Giờ kết thúc phải sau giờ bắt đầu."; return; }
+    start = startDate.toISOString();
+    end = endDate.toISOString();
+  }
+  if (saveButton) { saveButton.disabled = true; saveButton.textContent = "Đang lưu…"; }
+  try {
+    const saved = await invoke<CalendarEvent>("save_calendar_event", { event: {
+      id: data.get("id") || null, title: String(data.get("title")), location: String(data.get("location")), start, end, allDay,
+    }});
+    const index = state.events.findIndex((item) => item.id === saved.id);
+    if (index >= 0) state.events[index] = saved; else state.events.push(saved);
+    render();
+    document.querySelector<HTMLDialogElement>("#event-dialog")?.close();
+    setSyncState("Đã lưu sự kiện vào Google Calendar");
+    void syncFromGoogle();
+  } catch (error) { if (message) message.textContent = String(error); }
+  finally { if (saveButton) { saveButton.disabled = false; saveButton.textContent = "Lưu sự kiện"; } }
+}
+
 window.addEventListener("DOMContentLoaded", () => {
   document.querySelector("#previous-day")?.addEventListener("click", () => { state.selectedDate = addDays(state.selectedDate, state.view === "week" ? -7 : -1); render(); });
   document.querySelector("#next-day")?.addEventListener("click", () => { state.selectedDate = addDays(state.selectedDate, state.view === "week" ? 7 : 1); render(); });
   document.querySelector("#today-button")?.addEventListener("click", () => { state.selectedDate = startOfDay(new Date()); render(); });
   document.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((button) => button.addEventListener("click", () => { state.view = button.dataset.view as ViewMode; render(); }));
   document.querySelector("#sync-button")?.addEventListener("click", syncFromGoogle);
+  document.querySelector("#new-event-button")?.addEventListener("click", () => openEventEditor());
+  document.querySelector("#calendar-content")?.addEventListener("click", (event) => {
+    const card = (event.target as HTMLElement).closest<HTMLElement>("[data-event-id]");
+    if (card) openEventEditor(state.events.find((item) => item.id === card.dataset.eventId));
+  });
+  document.querySelector("#calendar-content")?.addEventListener("keydown", (event) => {
+    if (event instanceof KeyboardEvent && (event.key === "Enter" || event.key === " ")) {
+      const card = (event.target as HTMLElement).closest<HTMLElement>("[data-event-id]");
+      if (card) { event.preventDefault(); openEventEditor(state.events.find((item) => item.id === card.dataset.eventId)); }
+    }
+  });
   document.querySelector("#settings-button")?.addEventListener("click", () => document.querySelector<HTMLDialogElement>("#settings-dialog")?.showModal());
   document.querySelector("#close-settings")?.addEventListener("click", () => document.querySelector<HTMLDialogElement>("#settings-dialog")?.close());
+  document.querySelector("#close-event-dialog")?.addEventListener("click", () => document.querySelector<HTMLDialogElement>("#event-dialog")?.close());
+  document.querySelector<HTMLInputElement>("#event-all-day")?.addEventListener("change", (event) => toggleAllDayFields((event.currentTarget as HTMLInputElement).checked));
+  document.querySelector<HTMLFormElement>("#event-form")?.addEventListener("submit", (event) => { event.preventDefault(); void saveEventFromForm(event.currentTarget as HTMLFormElement); });
   document.querySelector<HTMLFormElement>("#client-id-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const input = document.querySelector<HTMLInputElement>("#client-id");

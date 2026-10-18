@@ -48,6 +48,17 @@ struct CalendarEvent {
     color: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EventInput {
+    id: Option<String>,
+    title: String,
+    start: String,
+    end: String,
+    all_day: bool,
+    location: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct EventCache {
@@ -205,7 +216,7 @@ async fn connect_google(app: tauri::AppHandle) -> Result<AppStatus, String> {
         .append_pair("client_id", &config.google_client_id)
         .append_pair("redirect_uri", &redirect_uri)
         .append_pair("response_type", "code")
-        .append_pair("scope", "https://www.googleapis.com/auth/calendar.readonly")
+        .append_pair("scope", "https://www.googleapis.com/auth/calendar.events")
         .append_pair("access_type", "offline")
         .append_pair("prompt", "consent")
         .append_pair("code_challenge", &challenge)
@@ -240,6 +251,13 @@ fn calendar_color(color_id: Option<&str>) -> String {
     match color_id { Some("1") => "#7986cb", Some("2") => "#33b679", Some("3") => "#8e24aa", Some("4") => "#e67c73", Some("5") => "#f6bf26", Some("6") => "#f4511e", Some("7") => "#039be5", Some("8") => "#616161", Some("9") => "#3f51b5", Some("10") => "#0b8043", Some("11") => "#d50000", _ => "#5f52cc" }.into()
 }
 
+fn map_google_event(event: GoogleEvent) -> CalendarEvent {
+    let all_day = event.start.date_time.is_none();
+    let start = event.start.date_time.or_else(|| event.start.date.map(|date| format!("{date}T00:00:00"))).unwrap_or_default();
+    let end = event.end.date_time.or_else(|| event.end.date.map(|date| format!("{date}T00:00:00"))).unwrap_or_else(|| start.clone());
+    CalendarEvent { id: event.id, title: event.summary.unwrap_or_else(|| "(Không có tiêu đề)".into()), start, end, all_day, location: event.location, color: calendar_color(event.color_id.as_deref()) }
+}
+
 #[tauri::command]
 async fn sync_calendar(app: tauri::AppHandle, time_min: String, time_max: String) -> Result<EventCache, String> {
     let config = load_config(&app);
@@ -249,17 +267,41 @@ async fn sync_calendar(app: tauri::AppHandle, time_min: String, time_max: String
         .bearer_auth(access_token)
         .query(&[("timeMin", time_min.as_str()), ("timeMax", time_max.as_str()), ("singleEvents", "true"), ("orderBy", "startTime"), ("maxResults", "250")])
         .send().await.map_err(|error| error.to_string())?.error_for_status().map_err(|error| format!("Không thể đọc Google Calendar: {error}"))?.json::<GoogleEventsResponse>().await.map_err(|error| error.to_string())?;
-    let events = response.items.into_iter().map(|event| {
-        let all_day = event.start.date_time.is_none();
-        let start = event.start.date_time.or_else(|| event.start.date.map(|date| format!("{date}T00:00:00"))).unwrap_or_default();
-        let end = event.end.date_time.or_else(|| event.end.date.map(|date| format!("{date}T00:00:00"))).unwrap_or_else(|| start.clone());
-        CalendarEvent { id: event.id, title: event.summary.unwrap_or_else(|| "(Không có tiêu đề)".into()), start, end, all_day, location: event.location, color: calendar_color(event.color_id.as_deref()) }
-    }).collect();
+    let events = response.items.into_iter().map(map_google_event).collect();
     let cache = EventCache { events, synced_at: Utc::now().to_rfc3339() };
     let path = cache_path(&app)?;
     if let Some(parent) = path.parent() { fs::create_dir_all(parent).map_err(|error| error.to_string())?; }
     fs::write(path, serde_json::to_string(&cache).map_err(|error| error.to_string())?).map_err(|error| error.to_string())?;
     Ok(cache)
+}
+
+#[tauri::command]
+async fn save_calendar_event(app: tauri::AppHandle, event: EventInput) -> Result<CalendarEvent, String> {
+    if event.title.trim().is_empty() { return Err("Tên sự kiện không được để trống".into()); }
+    let config = load_config(&app);
+    if config.google_client_id.is_empty() { return Err("Chưa cấu hình Google OAuth Client ID".into()); }
+    let access_token = refreshed_access_token(&config.google_client_id).await?;
+    let time_body = if event.all_day {
+        serde_json::json!({ "start": { "date": event.start }, "end": { "date": event.end } })
+    } else {
+        serde_json::json!({ "start": { "dateTime": event.start }, "end": { "dateTime": event.end } })
+    };
+    let mut body = serde_json::json!({
+        "summary": event.title.trim(),
+        "location": event.location.as_deref().unwrap_or("").trim(),
+    });
+    body.as_object_mut().expect("event body must be an object").extend(time_body.as_object().expect("time body must be an object").clone());
+    let client = reqwest::Client::new();
+    let response = if let Some(id) = event.id.filter(|id| !id.is_empty()) {
+        let mut event_url = Url::parse("https://www.googleapis.com/calendar/v3/calendars/primary/events/").map_err(|error| error.to_string())?;
+        event_url.path_segments_mut().map_err(|_| "URL Google Calendar không hợp lệ")?.push(&id);
+        client.patch(event_url).bearer_auth(access_token).json(&body).send().await
+    } else {
+        client.post("https://www.googleapis.com/calendar/v3/calendars/primary/events").bearer_auth(access_token).json(&body).send().await
+    }.map_err(|error| error.to_string())?
+        .error_for_status().map_err(|error| format!("Không thể lưu sự kiện: {error}"))?
+        .json::<GoogleEvent>().await.map_err(|error| error.to_string())?;
+    Ok(map_google_event(response))
 }
 
 #[tauri::command]
@@ -318,7 +360,7 @@ pub fn run() {
                 let _ = window.hide();
             }
         })
-        .invoke_handler(tauri::generate_handler![get_app_status, save_google_client_id, connect_google, sync_calendar, load_cached_events, disconnect_google])
+        .invoke_handler(tauri::generate_handler![get_app_status, save_google_client_id, connect_google, sync_calendar, save_calendar_event, load_cached_events, disconnect_google])
         .run(tauri::generate_context!())
         .expect("error while running LightCal");
 }
