@@ -75,11 +75,6 @@ struct TokenResponse {
 }
 
 #[derive(Debug, Deserialize)]
-struct PrimaryCalendar {
-    id: String,
-}
-
-#[derive(Debug, Deserialize)]
 struct GoogleEventsResponse {
     #[serde(default)]
     items: Vec<GoogleEvent>,
@@ -260,10 +255,13 @@ async fn connect_google(app: tauri::AppHandle) -> Result<AppStatus, String> {
 
     let refresh_token = token.refresh_token.ok_or("Google không cấp refresh token; hãy thu hồi quyền LightCal rồi thử lại")?;
     keyring_entry(REFRESH_TOKEN_USER)?.set_password(&refresh_token).map_err(|error| error.to_string())?;
-    let primary = reqwest::Client::new().get("https://www.googleapis.com/calendar/v3/calendars/primary").bearer_auth(&token.access_token).send().await.map_err(|error| error.to_string())?.error_for_status().map_err(|error| error.to_string())?.json::<PrimaryCalendar>().await.map_err(|error| error.to_string())?;
-    config.account_email = Some(primary.id.clone());
+    // The calendar.events scope is enough for everything LightCal does. Avoid
+    // calendars.get here because that endpoint requires a broader calendar
+    // metadata scope and would reject an otherwise valid sign-in with 403.
+    let account_label = "Google Calendar".to_string();
+    config.account_email = Some(account_label.clone());
     save_config(&app, &config)?;
-    Ok(AppStatus { configured: true, connected: true, account_email: Some(primary.id), client_id: Some(config.google_client_id) })
+    Ok(AppStatus { configured: true, connected: true, account_email: Some(account_label), client_id: Some(config.google_client_id) })
 }
 
 async fn refreshed_access_token(client_id: &str) -> Result<String, String> {
