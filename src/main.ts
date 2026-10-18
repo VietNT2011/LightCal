@@ -1,3 +1,5 @@
+import { invoke } from "@tauri-apps/api/core";
+
 type CalendarEvent = {
   id: string;
   title: string;
@@ -9,6 +11,9 @@ type CalendarEvent = {
 };
 
 type ViewMode = "day" | "week";
+
+type AppStatus = { configured: boolean; connected: boolean; accountEmail?: string };
+type EventCache = { events: CalendarEvent[]; syncedAt: string };
 
 const state: { selectedDate: Date; view: ViewMode; events: CalendarEvent[] } = {
   selectedDate: startOfDay(new Date()),
@@ -102,13 +107,78 @@ function setSyncState(message: string, spinning = false): void {
   document.querySelector<HTMLElement>("#sync-icon")?.classList.toggle("spinning", spinning);
 }
 
+function setStatus(status: AppStatus): void {
+  const title = document.querySelector<HTMLElement>("#account-title");
+  const subtitle = document.querySelector<HTMLElement>("#account-subtitle");
+  const connect = document.querySelector<HTMLButtonElement>("#connect-google");
+  const disconnect = document.querySelector<HTMLButtonElement>("#disconnect-google");
+  if (title) title.textContent = status.connected ? "Đã kết nối" : "Chưa kết nối";
+  if (subtitle) subtitle.textContent = status.accountEmail ?? "Google Calendar";
+  if (connect) connect.textContent = status.connected ? "Kết nối lại" : "Đăng nhập Google";
+  disconnect?.classList.toggle("hidden", !status.connected);
+}
+
+function syncRange(): { timeMin: string; timeMax: string } {
+  return { timeMin: addDays(startOfDay(new Date()), -7).toISOString(), timeMax: addDays(startOfDay(new Date()), 45).toISOString() };
+}
+
+async function syncFromGoogle(): Promise<void> {
+  setSyncState("Đang đồng bộ Google Calendar…", true);
+  try {
+    const cache = await invoke<EventCache>("sync_calendar", syncRange());
+    state.events = cache.events;
+    render();
+    setSyncState(`Đã đồng bộ lúc ${formatTime(cache.syncedAt)}`);
+  } catch (error) {
+    setSyncState(String(error));
+  }
+}
+
+async function initializeGoogle(): Promise<void> {
+  try {
+    const cached = await invoke<EventCache | null>("load_cached_events");
+    if (cached?.events.length) { state.events = cached.events; render(); setSyncState("Đang hiển thị dữ liệu đã lưu"); }
+    const status = await invoke<AppStatus>("get_app_status");
+    setStatus(status);
+    if (status.connected) await syncFromGoogle();
+  } catch {
+    setSyncState("Chế độ xem thử · Mở bằng Tauri để kết nối Google");
+  }
+}
+
 window.addEventListener("DOMContentLoaded", () => {
   document.querySelector("#previous-day")?.addEventListener("click", () => { state.selectedDate = addDays(state.selectedDate, state.view === "week" ? -7 : -1); render(); });
   document.querySelector("#next-day")?.addEventListener("click", () => { state.selectedDate = addDays(state.selectedDate, state.view === "week" ? 7 : 1); render(); });
   document.querySelector("#today-button")?.addEventListener("click", () => { state.selectedDate = startOfDay(new Date()); render(); });
   document.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((button) => button.addEventListener("click", () => { state.view = button.dataset.view as ViewMode; render(); }));
-  document.querySelector("#sync-button")?.addEventListener("click", () => { setSyncState("Đang đồng bộ…", true); window.setTimeout(() => setSyncState("Dữ liệu mẫu · Kết nối Google trong Cài đặt"), 650); });
+  document.querySelector("#sync-button")?.addEventListener("click", syncFromGoogle);
   document.querySelector("#settings-button")?.addEventListener("click", () => document.querySelector<HTMLDialogElement>("#settings-dialog")?.showModal());
   document.querySelector("#close-settings")?.addEventListener("click", () => document.querySelector<HTMLDialogElement>("#settings-dialog")?.close());
+  document.querySelector<HTMLFormElement>("#client-id-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const input = document.querySelector<HTMLInputElement>("#client-id");
+    const error = document.querySelector<HTMLElement>("#settings-error");
+    if (!input || !error) return;
+    error.textContent = "";
+    try {
+      const status = await invoke<AppStatus>("save_google_client_id", { clientId: input.value });
+      setStatus(status);
+      error.textContent = "Đã lưu Client ID trên máy.";
+    } catch (reason) { error.textContent = String(reason); }
+  });
+  document.querySelector("#connect-google")?.addEventListener("click", async () => {
+    const error = document.querySelector<HTMLElement>("#settings-error");
+    if (error) error.textContent = "Trình duyệt đang mở để bạn đăng nhập…";
+    try {
+      const status = await invoke<AppStatus>("connect_google");
+      setStatus(status);
+      if (error) error.textContent = "Kết nối thành công.";
+      await syncFromGoogle();
+    } catch (reason) { if (error) error.textContent = String(reason); }
+  });
+  document.querySelector("#disconnect-google")?.addEventListener("click", async () => {
+    try { setStatus(await invoke<AppStatus>("disconnect_google")); setSyncState("Đã ngắt kết nối Google"); } catch (error) { setSyncState(String(error)); }
+  });
   render();
+  void initializeGoogle();
 });
