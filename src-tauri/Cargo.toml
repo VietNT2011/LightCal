@@ -1,6 +1,6 @@
 [package]
 name = "lightcal"
-version = "0.2.0"
+version = "0.2.1"
 description = "A lightweight Google Calendar companion for Windows"
 authors = ["Viet Nguyen"]
 edition = "2024"

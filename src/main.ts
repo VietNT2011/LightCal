@@ -13,7 +13,7 @@ type CalendarEvent = {
 
 type ViewMode = "day" | "week";
 
-type AppStatus = { configured: boolean; connected: boolean; accountEmail?: string };
+type AppStatus = { configured: boolean; connected: boolean; accountEmail?: string; clientId?: string };
 type EventCache = { events: CalendarEvent[]; syncedAt: string };
 
 const state: { selectedDate: Date; view: ViewMode; events: CalendarEvent[] } = {
@@ -113,9 +113,11 @@ function setStatus(status: AppStatus): void {
   const subtitle = document.querySelector<HTMLElement>("#account-subtitle");
   const connect = document.querySelector<HTMLButtonElement>("#connect-google");
   const disconnect = document.querySelector<HTMLButtonElement>("#disconnect-google");
+  const clientId = document.querySelector<HTMLInputElement>("#client-id");
   if (title) title.textContent = status.connected ? "Đã kết nối" : "Chưa kết nối";
   if (subtitle) subtitle.textContent = status.accountEmail ?? "Google Calendar";
   if (connect) connect.textContent = status.connected ? "Kết nối lại" : "Đăng nhập Google";
+  if (clientId && status.clientId && !clientId.value) clientId.value = status.clientId;
   disconnect?.classList.toggle("hidden", !status.connected);
 }
 
@@ -258,13 +260,15 @@ window.addEventListener("DOMContentLoaded", () => {
   document.querySelector<HTMLFormElement>("#client-id-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const input = document.querySelector<HTMLInputElement>("#client-id");
+    const secret = document.querySelector<HTMLInputElement>("#client-secret");
     const error = document.querySelector<HTMLElement>("#settings-error");
-    if (!input || !error) return;
+    if (!input || !secret || !error) return;
     error.textContent = "";
     try {
-      const status = await invoke<AppStatus>("save_google_client_id", { clientId: input.value });
+      const status = await invoke<AppStatus>("save_google_credentials", { clientId: input.value, clientSecret: secret.value });
       setStatus(status);
-      error.textContent = "Đã lưu Client ID trên máy.";
+      secret.value = "";
+      error.textContent = "Đã lưu Client ID và Client Secret an toàn trên máy.";
     } catch (reason) { error.textContent = String(reason); }
   });
   document.querySelector("#connect-google")?.addEventListener("click", async () => {

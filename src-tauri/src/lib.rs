@@ -1,7 +1,7 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::Utc;
 use rand::{distr::Alphanumeric, Rng};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     fs,
@@ -19,7 +19,8 @@ use tauri::{
 use url::Url;
 
 const KEYRING_SERVICE: &str = "com.vietnguyen.lightcal";
-const KEYRING_USER: &str = "google-refresh-token";
+const REFRESH_TOKEN_USER: &str = "google-refresh-token";
+const CLIENT_SECRET_USER: &str = "google-client-secret";
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -34,6 +35,7 @@ struct AppStatus {
     configured: bool,
     connected: bool,
     account_email: Option<String>,
+    client_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -132,12 +134,30 @@ fn save_config(app: &tauri::AppHandle, config: &AppConfig) -> Result<(), String>
     fs::write(path, json).map_err(|error| error.to_string())
 }
 
-fn keyring_entry() -> Result<keyring::Entry, String> {
-    keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(|error| error.to_string())
+fn keyring_entry(user: &str) -> Result<keyring::Entry, String> {
+    keyring::Entry::new(KEYRING_SERVICE, user).map_err(|error| error.to_string())
 }
 
 fn has_refresh_token() -> bool {
-    keyring_entry().and_then(|entry| entry.get_password().map_err(|error| error.to_string())).is_ok()
+    keyring_entry(REFRESH_TOKEN_USER).and_then(|entry| entry.get_password().map_err(|error| error.to_string())).is_ok()
+}
+
+fn has_client_secret() -> bool {
+    keyring_entry(CLIENT_SECRET_USER).and_then(|entry| entry.get_password().map_err(|error| error.to_string())).is_ok()
+}
+
+async fn response_json<T: DeserializeOwned>(response: reqwest::Response, context: &str) -> Result<T, String> {
+    let status = response.status();
+    let text = response.text().await.map_err(|error| error.to_string())?;
+    if !status.is_success() {
+        let detail = serde_json::from_str::<serde_json::Value>(&text).ok().and_then(|json| {
+            json.get("error_description").and_then(|value| value.as_str()).map(str::to_owned)
+                .or_else(|| json.get("error").and_then(|value| value.get("message")).and_then(|value| value.as_str()).map(str::to_owned))
+                .or_else(|| json.get("error").and_then(|value| value.as_str()).map(str::to_owned))
+        }).unwrap_or_else(|| text.chars().take(300).collect());
+        return Err(format!("{context}: {detail} ({status})"));
+    }
+    serde_json::from_str(&text).map_err(|error| format!("{context}: phản hồi không hợp lệ ({error})"))
 }
 
 fn random_string(length: usize) -> String {
@@ -167,7 +187,7 @@ fn wait_for_oauth(listener: TcpListener, expected_state: String) -> Result<Strin
                     }
                 }
                 let success = oauth_error.is_none() && state.as_deref() == Some(expected_state.as_str()) && code.is_some();
-                let message = if success { "Đã kết nối Google Calendar. Bạn có thể đóng tab này và quay lại LightCal." } else { "Không thể kết nối Google Calendar. Hãy quay lại LightCal và thử lại." };
+                let message = if success { "Đã nhận xác thực từ Google. LightCal đang hoàn tất kết nối; bạn có thể đóng tab này và quay lại ứng dụng." } else { "Không thể nhận xác thực Google. Hãy quay lại LightCal và thử lại." };
                 let body = format!("<!doctype html><meta charset=\"utf-8\"><title>LightCal</title><style>body{{font:16px Segoe UI,sans-serif;display:grid;place-items:center;min-height:90vh;background:#f7f6f2;color:#292925}}main{{text-align:center;max-width:480px;padding:32px}}h1{{color:#5f52cc}}</style><main><h1>LightCal</h1><p>{message}</p></main>");
                 let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body);
                 let _ = stream.write_all(response.as_bytes());
@@ -185,25 +205,30 @@ fn wait_for_oauth(listener: TcpListener, expected_state: String) -> Result<Strin
 #[tauri::command]
 fn get_app_status(app: tauri::AppHandle) -> AppStatus {
     let config = load_config(&app);
-    AppStatus { configured: !config.google_client_id.is_empty(), connected: has_refresh_token(), account_email: config.account_email }
+    let client_id = (!config.google_client_id.is_empty()).then_some(config.google_client_id);
+    AppStatus { configured: client_id.is_some() && has_client_secret(), connected: has_refresh_token(), account_email: config.account_email, client_id }
 }
 
 #[tauri::command]
-fn save_google_client_id(app: tauri::AppHandle, client_id: String) -> Result<AppStatus, String> {
+fn save_google_credentials(app: tauri::AppHandle, client_id: String, client_secret: String) -> Result<AppStatus, String> {
     let client_id = client_id.trim();
     if !client_id.ends_with(".apps.googleusercontent.com") {
         return Err("Client ID không đúng định dạng Google".into());
     }
+    let client_secret = client_secret.trim();
+    if client_secret.is_empty() { return Err("Hãy nhập Client Secret của Desktop app".into()); }
     let mut config = load_config(&app);
     config.google_client_id = client_id.to_owned();
     save_config(&app, &config)?;
-    Ok(AppStatus { configured: true, connected: has_refresh_token(), account_email: config.account_email })
+    keyring_entry(CLIENT_SECRET_USER)?.set_password(client_secret).map_err(|error| error.to_string())?;
+    Ok(AppStatus { configured: true, connected: has_refresh_token(), account_email: config.account_email, client_id: Some(config.google_client_id) })
 }
 
 #[tauri::command]
 async fn connect_google(app: tauri::AppHandle) -> Result<AppStatus, String> {
     let mut config = load_config(&app);
     if config.google_client_id.is_empty() { return Err("Hãy lưu OAuth Client ID trước".into()); }
+    let client_secret = keyring_entry(CLIENT_SECRET_USER)?.get_password().map_err(|_| "Hãy lưu Client Secret trước".to_string())?;
 
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|error| error.to_string())?;
     let port = listener.local_addr().map_err(|error| error.to_string())?.port();
@@ -225,25 +250,29 @@ async fn connect_google(app: tauri::AppHandle) -> Result<AppStatus, String> {
     tauri_plugin_opener::open_url(auth_url.as_str(), None::<&str>).map_err(|error| error.to_string())?;
 
     let code = tauri::async_runtime::spawn_blocking(move || wait_for_oauth(listener, oauth_state)).await.map_err(|error| error.to_string())??;
-    let token = reqwest::Client::new().post("https://oauth2.googleapis.com/token").form(&[
+    let token_response = reqwest::Client::new().post("https://oauth2.googleapis.com/token").form(&[
         ("client_id", config.google_client_id.as_str()), ("code", code.as_str()),
+        ("client_secret", client_secret.as_str()),
         ("code_verifier", verifier.as_str()), ("grant_type", "authorization_code"),
         ("redirect_uri", redirect_uri.as_str()),
-    ]).send().await.map_err(|error| error.to_string())?.error_for_status().map_err(|error| format!("Google không chấp nhận mã xác thực: {error}"))?.json::<TokenResponse>().await.map_err(|error| error.to_string())?;
+    ]).send().await.map_err(|error| error.to_string())?;
+    let token = response_json::<TokenResponse>(token_response, "Google không chấp nhận mã xác thực").await?;
 
     let refresh_token = token.refresh_token.ok_or("Google không cấp refresh token; hãy thu hồi quyền LightCal rồi thử lại")?;
-    keyring_entry()?.set_password(&refresh_token).map_err(|error| error.to_string())?;
+    keyring_entry(REFRESH_TOKEN_USER)?.set_password(&refresh_token).map_err(|error| error.to_string())?;
     let primary = reqwest::Client::new().get("https://www.googleapis.com/calendar/v3/calendars/primary").bearer_auth(&token.access_token).send().await.map_err(|error| error.to_string())?.error_for_status().map_err(|error| error.to_string())?.json::<PrimaryCalendar>().await.map_err(|error| error.to_string())?;
     config.account_email = Some(primary.id.clone());
     save_config(&app, &config)?;
-    Ok(AppStatus { configured: true, connected: true, account_email: Some(primary.id) })
+    Ok(AppStatus { configured: true, connected: true, account_email: Some(primary.id), client_id: Some(config.google_client_id) })
 }
 
 async fn refreshed_access_token(client_id: &str) -> Result<String, String> {
-    let refresh_token = keyring_entry()?.get_password().map_err(|_| "Bạn chưa kết nối tài khoản Google".to_string())?;
-    let token = reqwest::Client::new().post("https://oauth2.googleapis.com/token").form(&[
-        ("client_id", client_id), ("refresh_token", refresh_token.as_str()), ("grant_type", "refresh_token"),
-    ]).send().await.map_err(|error| error.to_string())?.error_for_status().map_err(|error| format!("Không thể làm mới phiên Google: {error}"))?.json::<TokenResponse>().await.map_err(|error| error.to_string())?;
+    let refresh_token = keyring_entry(REFRESH_TOKEN_USER)?.get_password().map_err(|_| "Bạn chưa kết nối tài khoản Google".to_string())?;
+    let client_secret = keyring_entry(CLIENT_SECRET_USER)?.get_password().map_err(|_| "Thiếu Google Client Secret".to_string())?;
+    let token_response = reqwest::Client::new().post("https://oauth2.googleapis.com/token").form(&[
+        ("client_id", client_id), ("client_secret", client_secret.as_str()), ("refresh_token", refresh_token.as_str()), ("grant_type", "refresh_token"),
+    ]).send().await.map_err(|error| error.to_string())?;
+    let token = response_json::<TokenResponse>(token_response, "Không thể làm mới phiên Google").await?;
     Ok(token.access_token)
 }
 
@@ -311,11 +340,12 @@ fn load_cached_events(app: tauri::AppHandle) -> Option<EventCache> {
 
 #[tauri::command]
 fn disconnect_google(app: tauri::AppHandle) -> Result<AppStatus, String> {
-    if let Ok(entry) = keyring_entry() { let _ = entry.delete_credential(); }
+    if let Ok(entry) = keyring_entry(REFRESH_TOKEN_USER) { let _ = entry.delete_credential(); }
     let mut config = load_config(&app);
     config.account_email = None;
     save_config(&app, &config)?;
-    Ok(AppStatus { configured: !config.google_client_id.is_empty(), connected: false, account_email: None })
+    let client_id = (!config.google_client_id.is_empty()).then_some(config.google_client_id);
+    Ok(AppStatus { configured: client_id.is_some() && has_client_secret(), connected: false, account_email: None, client_id })
 }
 
 fn show_main_window(app: &tauri::AppHandle) {
@@ -360,7 +390,7 @@ pub fn run() {
                 let _ = window.hide();
             }
         })
-        .invoke_handler(tauri::generate_handler![get_app_status, save_google_client_id, connect_google, sync_calendar, save_calendar_event, load_cached_events, disconnect_google])
+        .invoke_handler(tauri::generate_handler![get_app_status, save_google_credentials, connect_google, sync_calendar, save_calendar_event, load_cached_events, disconnect_google])
         .run(tauri::generate_context!())
         .expect("error while running LightCal");
 }
