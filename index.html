@@ -1,27 +1,46 @@
 <!doctype html>
-<html lang="vi"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><meta name="theme-color" content="#f7f6f2"/><link rel="stylesheet" href="/src/styles.css"/><link rel="stylesheet" href="/src/settings.css"/><title>LightCal</title><script type="module" src="/src/main.ts" defer></script></head>
-<body><main class="app-shell"><aside class="sidebar">
-  <div class="brand"><span class="brand-mark" aria-hidden="true">L</span><span class="brand-name">LightCal</span></div>
-  <p class="nav-label">Chế độ xem</p><nav class="view-nav" aria-label="Chế độ xem lịch">
-    <button class="nav-button active" data-view="day" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/></svg><span>Hôm nay</span></button>
-    <button class="nav-button" data-view="week" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16v15H4zM4 10h16M9 5v15M15 5v15"/></svg><span>7 ngày tới</span></button>
-  </nav><div class="sidebar-footer">
-    <button class="nav-button" id="settings-button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34A1.7 1.7 0 0 0 14 20.93V21h-4v-.09A1.7 1.7 0 0 0 9 19.35a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.63 15 1.7 1.7 0 0 0 3.07 14H3v-4h.09A1.7 1.7 0 0 0 4.65 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.63 1.7 1.7 0 0 0 10 3.07V3h4v.09A1.7 1.7 0 0 0 15 4.65a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.37 9 1.7 1.7 0 0 0 20.93 10H21v4h-.09A1.7 1.7 0 0 0 19.4 15Z"/></svg><span>Cài đặt</span></button>
-    <div class="account-card"><span class="account-avatar">G</span><div><strong id="account-title">Chưa kết nối</strong><span id="account-subtitle">Google Calendar</span></div></div>
-  </div></aside><section class="content"><header class="topbar"><div class="date-controls">
-    <button class="icon-button" id="previous-day" aria-label="Ngày trước"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg></button><button class="soft-button" id="today-button">Hôm nay</button><button class="icon-button" id="next-day" aria-label="Ngày sau"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></button>
-  </div><div class="topbar-actions"><button class="primary-button" id="new-event-button">＋ Tạo lịch</button><button class="icon-button" id="sync-button" aria-label="Đồng bộ lịch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 9A7 7 0 0 1 18.6 6L20 8M4 16l1.4 2A7 7 0 0 0 17.9 15"/></svg></button></div></header>
-  <h1 id="date-heading"></h1><div class="sync-status"><span class="sync-dot" id="sync-icon"></span><span id="sync-label">Dữ liệu mẫu · Kết nối Google trong Cài đặt</span></div><div id="calendar-content" aria-live="polite"></div>
-  </section></main><dialog id="settings-dialog"><div class="dialog-content"><div class="dialog-head"><h2>Kết nối Google Calendar</h2><button class="icon-button" id="close-settings" aria-label="Đóng">×</button></div>
-    <p class="dialog-copy">Tạo OAuth Client loại <strong>Desktop app</strong> trong Google Cloud, bật Calendar API rồi nhập bộ thông tin bên dưới. Client Secret chỉ được lưu trong Windows Credential Manager.</p>
-    <form id="client-id-form"><label for="client-id">OAuth Client ID</label><input id="client-id" type="text" autocomplete="off" placeholder="123…apps.googleusercontent.com" required/><label for="client-secret">OAuth Client Secret</label><input id="client-secret" type="password" autocomplete="off" placeholder="GOCSPX-…" required/><button class="soft-button" type="submit">Lưu thông tin OAuth</button></form>
-    <div class="dialog-actions"><button class="primary-button" id="connect-google" type="button">Đăng nhập Google</button><button class="text-button hidden" id="disconnect-google" type="button">Ngắt kết nối</button></div>
-    <label class="toggle-row" for="autostart"><span><strong>Mở cùng Windows</strong><small>LightCal khởi động gọn trong khay hệ thống</small></span><input id="autostart" type="checkbox"/></label><p id="settings-error" class="settings-message" aria-live="polite"></p>
-  </div></dialog>
-  <dialog id="event-dialog"><form class="dialog-content event-form" id="event-form"><div class="dialog-head"><h2 id="event-dialog-title">Tạo sự kiện</h2><button class="icon-button" id="close-event-dialog" type="button" aria-label="Đóng">×</button></div>
-    <input id="event-id" name="id" type="hidden"/><label>Tên sự kiện<input id="event-title" name="title" type="text" maxlength="200" required/></label><label>Địa điểm<input id="event-location" name="location" type="text" maxlength="500"/></label>
-    <label class="check-row"><input id="event-all-day" name="allDay" type="checkbox"/><span>Cả ngày</span></label>
-    <div class="field-grid" id="timed-fields"><label>Bắt đầu<input id="event-start" name="start" type="datetime-local" required/></label><label>Kết thúc<input id="event-end" name="end" type="datetime-local" required/></label></div>
-    <div class="field-grid hidden" id="allday-fields"><label>Ngày bắt đầu<input id="event-start-date" name="startDate" type="date" required/></label><label>Ngày kết thúc<input id="event-end-date" name="endDate" type="date" required/></label></div>
-    <div class="dialog-actions"><button class="primary-button" id="save-event" type="submit">Lưu sự kiện</button></div><p id="event-error" class="settings-message" aria-live="polite"></p>
-  </form></dialog></body></html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#111129" />
+  <link rel="stylesheet" href="/src/styles.css" />
+  <link rel="stylesheet" href="/src/settings.css" />
+  <title>LightCal</title>
+  <script type="module" src="/src/main.ts" defer></script>
+</head>
+<body>
+  <main class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"><span>L</span></span>
+        <span class="brand-copy"><strong>LightCal</strong><small>Ngày mới, nhịp mới</small></span>
+      </div>
+      <p class="nav-label">Không gian của bạn</p>
+      <nav class="view-nav" aria-label="Chế độ xem lịch">
+        <button class="nav-button active" data-view="day" aria-pressed="true"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/></svg></span><span>Hôm nay</span></button>
+        <button class="nav-button" data-view="week" aria-pressed="false"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16v15H4zM4 10h16M9 5v15M15 5v15"/></svg></span><span>7 ngày tới</span></button>
+      </nav>
+      <div class="sidebar-note"><span class="note-spark">✦</span><p><strong>Tập trung vào hôm nay</strong><small>Mọi thay đổi được lưu thẳng vào Google Calendar.</small></p></div>
+      <div class="sidebar-footer">
+        <button class="nav-button" id="settings-button"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34A1.7 1.7 0 0 0 14 20.93V21h-4v-.09A1.7 1.7 0 0 0 9 19.35a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.63 15 1.7 1.7 0 0 0 3.07 14H3v-4h.09A1.7 1.7 0 0 0 4.65 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.63 1.7 1.7 0 0 0 10 3.07V3h4v.09A1.7 1.7 0 0 0 15 4.65a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.37 9 1.7 1.7 0 0 0 20.93 10H21v4h-.09A1.7 1.7 0 0 0 19.4 15Z"/></svg></span><span>Cài đặt</span></button>
+        <div class="account-card" id="account-card"><span class="account-avatar">G<span class="connection-dot"></span></span><div><strong id="account-title">Chưa kết nối</strong><span id="account-subtitle">Google Calendar</span></div></div>
+      </div>
+    </aside>
+    <section class="content">
+      <div class="ambient ambient-one"></div><div class="ambient ambient-two"></div>
+      <header class="topbar">
+        <div class="date-controls"><button class="icon-button" id="previous-day" aria-label="Ngày trước"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg></button><button class="soft-button" id="today-button"><span class="today-dot"></span>Hôm nay</button><button class="icon-button" id="next-day" aria-label="Ngày sau"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></button></div>
+        <div class="topbar-actions"><button class="icon-button sync-button" id="sync-button" aria-label="Đồng bộ lịch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 9A7 7 0 0 1 18.6 6L20 8M4 16l1.4 2A7 7 0 0 0 17.9 15"/></svg></button><button class="primary-button" id="new-event-button"><span>＋</span>Tạo lịch mới</button></div>
+      </header>
+      <section class="calendar-hero">
+        <div><p class="eyebrow" id="date-kicker">Lịch trình hôm nay</p><h1 id="date-heading"></h1><div class="sync-status"><span class="sync-dot" id="sync-icon"></span><span id="sync-label">Dữ liệu mẫu · Kết nối Google trong Cài đặt</span></div></div>
+        <div class="event-summary"><span class="summary-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 2v3M16 2v3M3.5 9h17"/><rect x="3.5" y="4" width="17" height="17" rx="4"/><path d="m9 15 2 2 4-5"/></svg></span><span><strong id="event-count">0</strong><small id="event-count-label">lịch hẹn</small></span></div>
+      </section>
+      <section class="schedule-panel"><div class="schedule-head"><div><span class="section-dot"></span><strong>Lịch trình</strong></div><span>Chọn một lịch hẹn để chỉnh sửa</span></div><div id="calendar-content" aria-live="polite"></div></section>
+    </section>
+  </main>
+  <dialog id="settings-dialog"><div class="dialog-content"><div class="dialog-head"><div><span class="dialog-kicker">Tài khoản</span><h2>Kết nối Google Calendar</h2></div><button class="icon-button" id="close-settings" aria-label="Đóng">×</button></div><p class="dialog-copy">Tạo OAuth Client loại <strong>Desktop app</strong> trong Google Cloud, bật Calendar API rồi nhập bộ thông tin bên dưới. Client Secret chỉ được lưu trong Windows Credential Manager.</p><form id="client-id-form"><label for="client-id">OAuth Client ID</label><input id="client-id" type="text" autocomplete="off" placeholder="123…apps.googleusercontent.com" required/><label for="client-secret">OAuth Client Secret</label><input id="client-secret" type="password" autocomplete="off" placeholder="GOCSPX-…" required/><button class="soft-button" type="submit">Lưu thông tin OAuth</button></form><div class="dialog-actions"><button class="primary-button" id="connect-google" type="button">Đăng nhập Google</button><button class="text-button hidden" id="disconnect-google" type="button">Ngắt kết nối</button></div><label class="toggle-row" for="autostart"><span><strong>Mở cùng Windows</strong><small>LightCal khởi động gọn trong khay hệ thống</small></span><input id="autostart" type="checkbox"/></label><p id="settings-error" class="settings-message" aria-live="polite"></p></div></dialog>
+  <dialog id="event-dialog"><form class="dialog-content event-form" id="event-form"><div class="dialog-head"><div><span class="dialog-kicker">Google Calendar</span><h2 id="event-dialog-title">Tạo sự kiện</h2></div><button class="icon-button" id="close-event-dialog" type="button" aria-label="Đóng">×</button></div><input id="event-id" name="id" type="hidden"/><label>Tên sự kiện<input id="event-title" name="title" type="text" maxlength="200" required/></label><label>Địa điểm<input id="event-location" name="location" type="text" maxlength="500"/></label><label class="check-row"><input id="event-all-day" name="allDay" type="checkbox"/><span>Cả ngày</span></label><div class="field-grid" id="timed-fields"><label>Bắt đầu<input id="event-start" name="start" type="datetime-local" required/></label><label>Kết thúc<input id="event-end" name="end" type="datetime-local" required/></label></div><div class="field-grid hidden" id="allday-fields"><label>Ngày bắt đầu<input id="event-start-date" name="startDate" type="date" required/></label><label>Ngày kết thúc<input id="event-end-date" name="endDate" type="date" required/></label></div><div class="dialog-actions"><button class="primary-button" id="save-event" type="submit">Lưu sự kiện</button></div><p id="event-error" class="settings-message" aria-live="polite"></p></form></dialog>
+</body>
+</html>

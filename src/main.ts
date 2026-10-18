@@ -85,7 +85,7 @@ function daySection(date: Date, compact = false): string {
   const weekday = new Intl.DateTimeFormat("vi-VN", { weekday: "short" }).format(date);
   const label = compact ? `<div class="date-tile${sameDay(date, new Date()) ? " is-today" : ""}"><span>${weekday}</span><strong>${date.getDate()}</strong></div>` : "";
   return `<section class="day-section${compact ? " compact" : ""}">${label}<div class="day-events">
-    ${events.length ? events.map(eventCard).join("") : `<div class="empty-day">Không có lịch hẹn</div>`}
+    ${events.length ? events.map(eventCard).join("") : `<div class="empty-day">Khoảng thời gian này đang trống</div>`}
   </div></section>`;
 }
 
@@ -95,6 +95,15 @@ function render(): void {
   if (!heading || !content) return;
   heading.textContent = state.view === "day" ? formatDayHeading(state.selectedDate) : `7 ngày từ ${new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit" }).format(state.selectedDate)}`;
   content.innerHTML = state.view === "day" ? daySection(state.selectedDate) : Array.from({ length: 7 }, (_, index) => daySection(addDays(state.selectedDate, index), true)).join("");
+  const visibleCount = state.view === "day"
+    ? eventsForDate(state.selectedDate).length
+    : Array.from({ length: 7 }, (_, index) => eventsForDate(addDays(state.selectedDate, index)).length).reduce((sum, count) => sum + count, 0);
+  const count = document.querySelector<HTMLElement>("#event-count");
+  const countLabel = document.querySelector<HTMLElement>("#event-count-label");
+  const kicker = document.querySelector<HTMLElement>("#date-kicker");
+  if (count) count.textContent = String(visibleCount);
+  if (countLabel) countLabel.textContent = state.view === "day" ? "lịch hẹn hôm nay" : "lịch hẹn trong 7 ngày";
+  if (kicker) kicker.textContent = state.view === "day" ? "Lịch trình hôm nay" : "Tổng quan tuần mới";
   document.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((button) => {
     const selected = button.dataset.view === state.view;
     button.classList.toggle("active", selected);
@@ -118,6 +127,7 @@ function setStatus(status: AppStatus): void {
   if (subtitle) subtitle.textContent = status.accountEmail ?? "Google Calendar";
   if (connect) connect.textContent = status.connected ? "Kết nối lại" : "Đăng nhập Google";
   if (clientId && status.clientId && !clientId.value) clientId.value = status.clientId;
+  document.querySelector("#account-card")?.classList.toggle("connected", status.connected);
   disconnect?.classList.toggle("hidden", !status.connected);
 }
 
