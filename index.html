@@ -15,5 +15,6 @@
   </section></main><dialog id="settings-dialog"><div class="dialog-content"><div class="dialog-head"><h2>Kết nối Google Calendar</h2><button class="icon-button" id="close-settings" aria-label="Đóng">×</button></div>
     <p class="dialog-copy">Tạo OAuth Client loại <strong>Desktop app</strong> trong Google Cloud, bật Calendar API rồi dán Client ID vào đây. LightCal chỉ yêu cầu quyền đọc lịch.</p>
     <form id="client-id-form"><label for="client-id">OAuth Client ID</label><input id="client-id" type="text" autocomplete="off" placeholder="123…apps.googleusercontent.com" required/><button class="soft-button" type="submit">Lưu Client ID</button></form>
-    <div class="dialog-actions"><button class="primary-button" id="connect-google" type="button">Đăng nhập Google</button><button class="text-button hidden" id="disconnect-google" type="button">Ngắt kết nối</button></div><p id="settings-error" class="settings-message" aria-live="polite"></p>
+    <div class="dialog-actions"><button class="primary-button" id="connect-google" type="button">Đăng nhập Google</button><button class="text-button hidden" id="disconnect-google" type="button">Ngắt kết nối</button></div>
+    <label class="toggle-row" for="autostart"><span><strong>Mở cùng Windows</strong><small>LightCal khởi động gọn trong khay hệ thống</small></span><input id="autostart" type="checkbox"/></label><p id="settings-error" class="settings-message" aria-live="polite"></p>
   </div></dialog></body></html>

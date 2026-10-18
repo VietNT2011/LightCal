@@ -7,3 +7,8 @@
 .text-button { padding: 6px; border: 0; color: #9b4d45; background: transparent; font-size: 12px; }
 .settings-message { min-height: 20px; margin: 13px 0 0; color: var(--ink-muted); font-size: 11px; }
 .hidden { display: none !important; }
+.toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+.toggle-row strong, .toggle-row small { display: block; }
+.toggle-row strong { font-size: 12px; }
+.toggle-row small { margin-top: 3px; color: var(--ink-muted); font-size: 10px; }
+.toggle-row input { width: 17px; height: 17px; accent-color: var(--accent); }

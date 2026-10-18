@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 
 type CalendarEvent = {
   id: string;
@@ -146,6 +147,12 @@ async function initializeGoogle(): Promise<void> {
   }
 }
 
+async function initializeAutostart(): Promise<void> {
+  const checkbox = document.querySelector<HTMLInputElement>("#autostart");
+  if (!checkbox) return;
+  try { checkbox.checked = await isEnabled(); } catch { checkbox.disabled = true; }
+}
+
 window.addEventListener("DOMContentLoaded", () => {
   document.querySelector("#previous-day")?.addEventListener("click", () => { state.selectedDate = addDays(state.selectedDate, state.view === "week" ? -7 : -1); render(); });
   document.querySelector("#next-day")?.addEventListener("click", () => { state.selectedDate = addDays(state.selectedDate, state.view === "week" ? 7 : 1); render(); });
@@ -179,6 +186,14 @@ window.addEventListener("DOMContentLoaded", () => {
   document.querySelector("#disconnect-google")?.addEventListener("click", async () => {
     try { setStatus(await invoke<AppStatus>("disconnect_google")); setSyncState("Đã ngắt kết nối Google"); } catch (error) { setSyncState(String(error)); }
   });
+  document.querySelector<HTMLInputElement>("#autostart")?.addEventListener("change", async (event) => {
+    const checkbox = event.currentTarget as HTMLInputElement;
+    checkbox.disabled = true;
+    try { if (checkbox.checked) await enable(); else await disable(); }
+    catch (error) { checkbox.checked = !checkbox.checked; setSyncState(String(error)); }
+    finally { checkbox.disabled = false; }
+  });
   render();
   void initializeGoogle();
+  void initializeAutostart();
 });

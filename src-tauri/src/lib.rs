@@ -12,6 +12,10 @@ use std::{
     time::{Duration, Instant},
 };
 use tauri::Manager;
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+};
 use url::Url;
 
 const KEYRING_SERVICE: &str = "com.vietnguyen.lightcal";
@@ -272,10 +276,48 @@ fn disconnect_google(app: tauri::AppHandle) -> Result<AppStatus, String> {
     Ok(AppStatus { configured: !config.google_client_id.is_empty(), connected: false, account_email: None })
 }
 
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main_window(app)))
+        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            let show = MenuItem::with_id(app, "show", "Mở LightCal", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "Thoát", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show, &quit])?;
+            TrayIconBuilder::new()
+                .icon(app.default_window_icon().expect("missing app icon").clone())
+                .tooltip("LightCal")
+                .menu(&menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => show_main_window(app),
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+                        show_main_window(tray.app_handle());
+                    }
+                })
+                .build(app)?;
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
         .invoke_handler(tauri::generate_handler![get_app_status, save_google_client_id, connect_google, sync_calendar, load_cached_events, disconnect_google])
         .run(tauri::generate_context!())
         .expect("error while running LightCal");
